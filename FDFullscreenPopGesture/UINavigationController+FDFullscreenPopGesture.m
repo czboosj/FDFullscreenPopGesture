@@ -50,7 +50,7 @@
     if (maxAllowedInitialDistance > 0 && beginningLocation.x > maxAllowedInitialDistance) {
         return NO;
     }
-
+    
     // Ignore pan gesture when the navigation controller is currently in transition.
     if ([[self.navigationController valueForKey:@"_isTransitioning"] boolValue]) {
         return NO;
@@ -86,7 +86,7 @@ typedef void (^_FDViewControllerWillAppearInjectBlock)(UIViewController *viewCon
         Method viewWillAppear_originalMethod = class_getInstanceMethod(self, @selector(viewWillAppear:));
         Method viewWillAppear_swizzledMethod = class_getInstanceMethod(self, @selector(fd_viewWillAppear:));
         method_exchangeImplementations(viewWillAppear_originalMethod, viewWillAppear_swizzledMethod);
-    
+        
         Method viewWillDisappear_originalMethod = class_getInstanceMethod(self, @selector(viewWillDisappear:));
         Method viewWillDisappear_swizzledMethod = class_getInstanceMethod(self, @selector(fd_viewWillDisappear:));
         method_exchangeImplementations(viewWillDisappear_originalMethod, viewWillDisappear_swizzledMethod);
@@ -107,13 +107,24 @@ typedef void (^_FDViewControllerWillAppearInjectBlock)(UIViewController *viewCon
 {
     // Forward to primary implementation.
     [self fd_viewWillDisappear:animated];
+    if(self.navigationController.fd_viewControllerBasedNavigationBarAppearanceEnabled){
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            UIViewController *viewController = self.navigationController.viewControllers.lastObject;
+            if ([viewController isKindOfClass:[UITabBarController class]]){
+                // 两个位置加入此代码,理论上 UITabBarController 一般做多页容器,所以判断里面的内容页参数
+                if ([(UITabBarController *)viewController viewControllers].count>0){
+                    viewController = [(UITabBarController *)viewController selectedViewController];
+                }
+                
+            }
+            if (viewController && !viewController.fd_prefersNavigationBarHidden) {
+                [self.navigationController setNavigationBarHidden:NO animated:NO];
+            }else if (viewController && viewController.fd_prefersNavigationBarHidden){
+                [self.navigationController setNavigationBarHidden:YES animated:NO];
+            }
+        });
+    }
     
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        UIViewController *viewController = self.navigationController.viewControllers.lastObject;
-        if (viewController && !viewController.fd_prefersNavigationBarHidden) {
-            [self.navigationController setNavigationBarHidden:NO animated:NO];
-        }
-    });
 }
 
 - (_FDViewControllerWillAppearInjectBlock)fd_willAppearInjectBlock
@@ -188,6 +199,10 @@ typedef void (^_FDViewControllerWillAppearInjectBlock)(UIViewController *viewCon
     __weak typeof(self) weakSelf = self;
     _FDViewControllerWillAppearInjectBlock block = ^(UIViewController *viewController, BOOL animated) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
+        if ([strongSelf isKindOfClass:NSClassFromString(@"MFMessageComposeViewController")]) {
+            return;
+        }
+        
         if (strongSelf) {
             [strongSelf setNavigationBarHidden:viewController.fd_prefersNavigationBarHidden animated:animated];
         }
@@ -198,6 +213,12 @@ typedef void (^_FDViewControllerWillAppearInjectBlock)(UIViewController *viewCon
     // stack by pushing, maybe by "-setViewControllers:".
     appearingViewController.fd_willAppearInjectBlock = block;
     UIViewController *disappearingViewController = self.viewControllers.lastObject;
+    if ([disappearingViewController isKindOfClass:[UITabBarController class]]){
+        if ([(UITabBarController *)disappearingViewController viewControllers].count>0){
+            disappearingViewController = [(UITabBarController *)disappearingViewController selectedViewController];
+            
+        }
+    }
     if (disappearingViewController && !disappearingViewController.fd_willAppearInjectBlock) {
         disappearingViewController.fd_willAppearInjectBlock = block;
     }
